@@ -8,25 +8,29 @@ from google.oauth2.service_account import Credentials
 SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_DOEL = "Live Prijzen"
 
-def haal_live_winkel_data(url, winkel_naam, proxy_key):
-    """Haalt live data op via een roterende proxy om Cloudflare te omzeilen."""
+def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
+    """Haalt live data op via ZenRows met een veilige parameter-constructie."""
     print(f"📡 Live data ophalen van {winkel_naam} via proxy-omleiding...")
     
-    # We sturen de aanvraag door via de gratis proxy-dienst om de 403 blokkade te omzeilen
-    proxy_url = f"https://zenrows.com{proxy_key}&url={requests.utils.quote(url)}"
+    # De stabiele basissite van de proxy
+    api_url = "https://zenrows.com"
+    
+    # We laten Python ZELF de URL bouwen om misvormingen en NameResolutionErrors te voorkomen
+    payload = {
+        "key": proxy_key,
+        "url": target_url
+    }
     
     try:
-        response = requests.get(proxy_url, timeout=25)
+        response = requests.get(api_url, params=payload, timeout=30)
         if response.status_code == 200:
             data = response.json()
             products = data.get('products', []) or data.get('results', [])
             
             cleaned_items = []
             for p in products:
-                # Prijs-extractie finetunen
                 raw_price = p.get('price', {}).get('value') if isinstance(p.get('price'), dict) else p.get('price', 'Zie site')
                 
-                # Bepaal de link op basis van de winkel
                 domain = "kruidvat.nl" if winkel_naam == "Kruidvat" else "etos.nl"
                 p_link = p.get('url', '')
                 if p_link and not p_link.startswith('http'):
@@ -37,7 +41,7 @@ def haal_live_winkel_data(url, winkel_naam, proxy_key):
                     p.get('name') or p.get('title', 'Onbekend product'),
                     p_link,
                     p.get('promoText') or (p.get('activePromotion', {}).get('description') if isinstance(p.get('activePromotion'), dict) else ''),
-                    '', # actie-deal
+                    '', 
                     str(raw_price),
                     winkel_naam
                 ]
@@ -46,7 +50,7 @@ def haal_live_winkel_data(url, winkel_naam, proxy_key):
             print(f"✅ {len(cleaned_items)} live producten gevonden voor {winkel_naam}!")
             return cleaned_items
         else:
-            print(f"⚠️ Proxy gaf statuscode {response.status_code} voor {winkel_naam}. Mogelijk token-limiet bereikt.")
+            print(f"⚠️ Proxy gaf statuscode {response.status_code} voor {winkel_naam}. Controleer je proxy-credits.")
     except Exception as e:
         print(f"❌ Fout tijdens het live scrapen van {winkel_naam}: {e}")
     return []
@@ -64,11 +68,10 @@ def update_google_sheet():
     creds = Credentials.from_service_account_info(json.loads(creds_json), scopes=scopes)
     client = gspread.authorize(creds)
     
-    # De echte live interne endpoints van Kruidvat en Etos
+    # De interne product-API endpoints van de winkels
     kruidvat_url = "https://kruidvat.nl"
     etos_url = "https://etos.nl"
 
-    # Haal de data écht live op!
     kruidvat_data = haal_live_winkel_data(kruidvat_url, "Kruidvat", proxy_key)
     etos_data = haal_live_winkel_data(etos_url, "Etos", proxy_key)
     
@@ -87,7 +90,7 @@ def update_google_sheet():
         headers = ["id", "product-title", "product-link", "actie", "actie-deal", "prijs", "winkel"]
         worksheet.append_row(headers)
         worksheet.append_rows(alle_producten)
-        print("🎉 GOUD! De robot heeft de BEVEILIGING omzeild en de live prijzen staan in je Sheet!")
+        print("🎉 GOUD! De robot heeft de data verwerkt en de live prijzen staan in je Sheet!")
     except Exception as e:
         print(f"❌ Fout tijdens het schrijven naar de sheet: {e}")
 
