@@ -4,9 +4,9 @@ import requests
 import gspread
 import re
 import traceback
-from google.oauth2.service_account import Credentials
 
 # --- CONFIGURATIE ---
+# Plak hier de ID van jouw Google Sheet (te vinden in de URL van je spreadsheet)
 SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_DOEL = "Live Prijzen"
 
@@ -32,10 +32,13 @@ def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
         html_content = response.text
         print("🔍 HTML succesvol ontvangen! We starten de lokale data-extractie...")
         
-        prijzen = re.findall(r'(\d+[\.,]\d{2})', html_content)
-        
-        # Filter om uitschieters te voorkomen
-        geldige_prijzen = [p for p in prijzen if not p.startswith("00") and not p.startswith("100")]
+        # We zoeken specifiek naar prijzen die tussen HTML-tags of in specifieke structuren staan
+        prijzen = re.findall(r'>\s*€?\s*(\d+[\.,]\d{2})\s*<', html_content)
+        if not prijzen:
+            prijzen = re.findall(r'(\d+[\.,]\d{2})', html_content)
+            
+        # Filter vreemde getallen en dummy data eruit
+        geldige_prijzen = [p for p in prijzen if not p.startswith("00") and not p.startswith("100") and p != "5,00" and p != "5.00"]
         
         if geldige_prijzen:
             schone_prijs = f"€ {geldige_prijzen[0].replace('.', ',')}"
@@ -80,28 +83,30 @@ def update_google_sheet():
         print("❌ CRITICAL: Geheimen ontbreken in GitHub Secrets!")
         return
         
-    # We schrijven de JSON-data tijdelijk naar een fysiek bestand om OIDC-tokenfouten te omzeilen
-    temp_creds_path = "creds_temp.json"
+    # We slaan het bestand expliciet op als 'credentials.json'
+    temp_creds_path = "credentials.json"
     try:
+        # Zorg dat de JSON strikt als geldig object wordt geïnterpreteerd
+        json_data = json.loads(creds_json.strip())
+        
+        # Geforceerde fix: We dwingen het type naar service_account mocht er een key-mismatch zijn
+        if "type" in json_data and json_data["type"] != "service_account":
+            print("⚠️ WAARSCHUWING: Type in JSON was niet 'service_account'. We corrigeren dit live...")
+            json_data["type"] = "service_account"
+            
         with open(temp_creds_path, "w") as f:
-            f.write(creds_json.strip())
+            json.dump(json_data, f)
     except Exception as e:
-        print(f"❌ Fout bij het aanmaken van het tijdelijke certificaatbestand: {e}")
+        print(f"❌ Fout bij het aanmaken van het certificaatbestand: {e}")
         return
 
-    # De officiële Google Drive & Sheets scopes die gspread vereist
-    scopes = [
-        "https://googleapis.com",
-        "https://googleapis.com"
-    ]
-    
     try:
-        # Inloggen via het fysieke bestand (dit is de meest robuuste methode)
-        creds = Credentials.from_service_account_file(temp_creds_path, scopes=scopes)
-        client = gspread.authorize(creds)
-        print("🔓 Google API succesvol geauthenticeerd via bestand!")
+        # We gebruiken de gspread service_account snelkoppeling die OIDC-tokenfouten omzeilt
+        client = gspread.service_account(filename=temp_creds_path)
+        print("🔓 Google API succesvol geauthenticeerd via Service Account!")
     except Exception as e:
         print(f"❌ Fout bij de initiële authenticatie: {e}")
+        print(f"🔍 AUTH DETAILS:\n{traceback.format_exc()}")
         if os.path.exists(temp_creds_path):
             os.remove(temp_creds_path)
         return
@@ -142,7 +147,6 @@ def update_google_sheet():
         print(f"❌ Fout tijdens het schrijven naar de sheet!")
         print(f"🔍 EXACTE FOUTDETAILS:\n{traceback.format_exc()}")
     finally:
-        # Altijd het tijdelijke bestand netjes opruimen aan het einde
         if os.path.exists(temp_creds_path):
             os.remove(temp_creds_path)
 
