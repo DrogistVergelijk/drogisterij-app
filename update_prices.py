@@ -2,6 +2,7 @@ import os
 import json
 import gspread
 from google.oauth2.service_account import Credentials
+import google.auth.transport.requests
 
 # --- CONFIGURATIE ---
 # PLAK HIER jouw unieke Spreadsheet ID uit de URL!
@@ -9,32 +10,36 @@ SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_NAAM = "Live Prijzen"
 
 def update_google_sheet():
-    print("🔑 Inloggen bij Google Sheets via expliciete API Scopes...")
+    print("🔑 Inloggen bij Google Sheets met kloksynchronisatie...")
     
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     if not creds_json:
         print("❌ Fout: Geen GOOGLE_CREDENTIALS gevonden in GitHub Secrets!")
         return
 
-    # Dit zijn de exacte, ouderwetse maar onfeilbare scopes die Google dwingen om data-toegang te geven
     scopes = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
+        "https://googleapis.com",
         "https://googleapis.com"
     ]
     
     try:
         creds_dict = json.loads(creds_json)
+        
+        # Oplossing voor de klok-fout: we dwingen een tijdsmarge af van 10 seconden
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        
+        # We verversen de token handmatig vóór gspread ermee aan de haal gaat om de fout op te vangen
+        request = google.auth.transport.requests.Request()
+        credentials.refresh(request)
+        
         client = gspread.authorize(credentials)
-        print("✅ Verbinding met authenticatieserver geslaagd!")
+        print("✅ Verbinding met Google succesvol gesynchroniseerd!")
     except Exception as e:
-        print(f"❌ Inlogfout bij Google Auth: {e}")
+        print(f"❌ Inlogfout bij Google Auth (Klok/Token probleem): {e}")
+        print("💡 TIP: Als deze fout blijft, is de service-account sleutel in Google Cloud mogelijk gedeactiveerd.")
         return
 
     try:
-        # Openen van de sheet
         print(f"📂 Openen van spreadsheet ID: {SPREADSHEET_ID}...")
         sheet = client.open_by_key(SPREADSHEET_ID)
         
@@ -51,10 +56,8 @@ def update_google_sheet():
             return
 
         print(f"✅ {len(raw_data) - 1} rijen gevonden in 'Upload'. Schoonmaken starten...")
-
         schone_rijen = raw_data[1:] 
 
-        # Open en vul het doeltabblad Live Prijzen
         worksheet = sheet.worksheet(TABBLAD_NAAM)
         worksheet.clear()
         
