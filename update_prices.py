@@ -4,19 +4,18 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- CONFIGURATIE ---
+# PLAK HIER jouw unieke Spreadsheet ID uit de URL!
 SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_NAAM = "Live Prijzen"
 
 def update_google_sheet():
     print("🔑 Inloggen bij Google Sheets via moderne Google Auth...")
     
-    # Haal de sleutel op uit GitHub Secrets
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     if not creds_json:
         print("❌ Fout: Geen GOOGLE_CREDENTIALS gevonden in GitHub Secrets!")
         return
 
-    # Inloggen via de officiële Google aanbevolen methode
     scopes = [
         "https://googleapis.com",
         "https://googleapis.com"
@@ -32,10 +31,10 @@ def update_google_sheet():
         return
 
     try:
-        # Open het spreadsheetbestand
-        sheet = client.open(GOOGLE_SHEET_NAME)
+        # We openen de sheet nu DIRECT op basis van de unieke ID (onfeilbaar)
+        print(f"📂 Openen van spreadsheet ID: {SPREADSHEET_ID}...")
+        sheet = client.open_by_key(SPREADSHEET_ID)
         
-        # Probeer de ruwe data uit het tabblad 'Upload' te halen
         print("📡 Data ophalen uit tabblad 'Upload'...")
         try:
             upload_worksheet = sheet.worksheet("Upload")
@@ -50,20 +49,14 @@ def update_google_sheet():
 
         print(f"✅ {len(raw_data) - 1} rijen gevonden in 'Upload'. Schoonmaken starten...")
 
-        # --- DATA SCHOONMAAK ZONE ---
-        # De robot maakt de data hier strak. We pakken nu de rijen direct over.
-        # (Later kunnen we hier intelligente filters plaatsen voor jouw kolommen!)
         schone_rijen = raw_data[1:] 
 
-        # Open het doeltabblad 'Live Prijzen'
+        # Open en vul het doeltabblad
         worksheet = sheet.worksheet(TABBLAD_NAAM)
         worksheet.clear()
         
-        # Schrijf de kolomkoppen
         headers = ["id", "product-title", "product-link", "actie", "actie-deal", "prijs", "winkel"]
         worksheet.append_row(headers)
-        
-        # Schrijf de schone rijen eronder
         worksheet.append_rows(schone_rijen)
         print("🎉 GOUD! De robot heeft de data verwerkt en je Google Sheet staat live!")
 
