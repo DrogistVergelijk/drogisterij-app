@@ -18,7 +18,7 @@ jobs:
 
     - name: Benodigde bibliotheken installeren
       run: |
-        pip install requests gspread oauth2client
+        pip install gspread google-auth
 
     - name: Scraper script uitvoeren
       env:
