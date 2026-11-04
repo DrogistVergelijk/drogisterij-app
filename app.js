@@ -1,8 +1,9 @@
+// Jouw officiële Google Sheet export-link
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSqCQnmlbT0NkZxWhiL2ysCv23qzaDntXUyMCu7-ZbjstCVy3Z-au6Fw8JH52P5J41sGlWlWyk7dX6G/pub?output=csv';
 
 let alleProducten = [];
 
-// Functie om de officiële Google CSV-tekst netjes op te splitsen in kolommen
+// Functie om de CSV-tekst netjes op te splitsen in kolommen
 function parseCSV(text) {
     let lines = [];
     let row = [""];
@@ -28,6 +29,14 @@ function parseCSV(text) {
     return lines;
 }
 
+// Helper-functie die gratis prijzen (zoals €6,29 of 6.29) omzet naar een echt getal om mee te rekenen
+function haalPrijsGetal(prijsTekst) {
+    if (!prijsTekst) return 9999; // Zet producten zonder prijs onderaan
+    let opgeschoond = prijsTekst.toString().replace(/[^0-9\.,]/g, '').replace(',', '.');
+    let nummer = parseFloat(opgeschoond);
+    return isNaN(nummer) ? 9999 : nummer;
+}
+
 function toonProducten(productenLijst) {
     const container = document.getElementById('products-container');
     container.innerHTML = "";
@@ -39,12 +48,11 @@ function toonProducten(productenLijst) {
 
     productenLijst.forEach(prod => {
         let actieBadge = "";
-        // Controleer of er echt een actie-aantal in jouw spreadsheet staat
         if (prod.actieAantal && prod.actieAantal.trim() !== "" && prod.actieAantal !== "undefined") {
             let badgeTekst = (prod.actiePrijs && prod.actiePrijs.trim() !== "" && prod.actiePrijs !== "undefined") 
                 ? `${prod.actieAantal} voor €${prod.actiePrijs}` 
                 : prod.actieAantal;
-            actieBadge = `<div class="badge">🔥 ACTIE: ${badgeTekst}</div>`;
+            actieBadge = `<div class="badge" style="background:#e74c3c; color:white; padding:4px 8px; border-radius:4px; font-size:12px; display:inline-block; margin-top:5px;">🔥 ACTIE: ${badgeTekst}</div>`;
         }
 
         container.innerHTML += `
@@ -67,10 +75,8 @@ async function startApp() {
         const csvTekst = await response.text();
         
         const data = parseCSV(csvTekst);
-        const rijen = data.slice(1); // Sla de header-rij over
+        const rijen = data.slice(1);
 
-        // We koppelen de kolommen exact aan jouw spreadsheet-volgorde:
-        // A=ID (0), B=Productnaam (1), C=Link (2), D=Actie aantal (3), E=Actie prijs (4), F=Prijs (5)
         alleProducten = rijen.map(kolommen => {
             if (!kolommen || kolommen.length < 2) return null;
             return {
@@ -83,12 +89,16 @@ async function startApp() {
             };
         }).filter(p => p && p.naam && p.naam !== "");
 
+        // HIER GEBEURT HET: We sorteren de lijst automatisch van goedkoop naar duur
+        alleProducten.sort((a, b) => haalPrijsGetal(a.prijs) - haalPrijsGetal(b.prijs));
+
         toonProducten(alleProducten);
 
-        // Activeer de live zoekbalk
         document.getElementById('search').addEventListener('input', (e) => {
             const zoekterm = e.target.value.toLowerCase();
             const gefilterd = alleProducten.filter(p => p.naam.toLowerCase().includes(zoekterm));
+            // De gefilterde zoekresultaten blijven ook keurig gesorteerd op prijs!
+            gefilterd.sort((a, b) => haalPrijsGetal(a.prijs) - haalPrijsGetal(b.prijs));
             toonProducten(gefilterd);
         });
 
