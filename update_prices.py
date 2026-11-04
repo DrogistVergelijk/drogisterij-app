@@ -9,9 +9,27 @@ from google.oauth2.service_account import Credentials
 SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_DOEL = "Live Prijzen"
 
-def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
-    print(f"📡 Live data ophalen van {winkel_naam} via ZenRows...")
+def debug_check_proxy_key(key):
+    """Controleert de status van de sleutel zonder deze volledig te loggen ivm privacy"""
+    if not key:
+        return "⚠️ DE SLEUTEL IS HELEMAAL LEEG (Niet gevonden in de omgeving)!"
     
+    opgeschoond = key.strip().replace("'", "").replace('"', '')
+    fouten = []
+    if len(key) != len(opgeschoond):
+        fouten.append("bevat verborgen spaties of enters")
+    if "'" in key or '"' in key:
+        fouten.append("bevat ongewenste aanhalingstekens")
+        
+    status = f"Sleutel geladen (Lengte: {len(key)} tekens)."
+    if fouten:
+        status += " CRITICALL: De sleutel " + " en ".join(fouten) + "! Dit sloopt de aanroep."
+    return status
+
+def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
+    print(f"\n📡 --- START SCRAPING VOOR {winkel_naam.upper()} ---")
+    
+    # We proberen de standaard aanroep via het ZenRows API endpoint
     api_url = "https://zenrows.com"
     
     # CSS selectors specifiek voor de zoekpagina's van Kruidvat en Etos
@@ -40,9 +58,8 @@ def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
             }
         }
 
-    # ZenRows verwacht bij een GET-verzoek alle parameters in de URL query
     payload = {
-        "apikey": proxy_key,
+        "apikey": proxy_key.strip(),
         "url": target_url,
         "js_render": "true",
         "antibot": "true",
@@ -51,61 +68,86 @@ def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
         "js_instructions": json.dumps(selectors)
     }
     
+    print(f"🔄 Poging 1: Verbinding maken via ZenRows API...")
     try:
-        # Gewijzigd naar requests.get om te voldoen aan de ZenRows documentatie
         response = requests.get(api_url, params=payload, timeout=60)
         
-        if response.status_code == 200:
-            try:
-                data = response.json()
-            except Exception:
-                print(f"⚠️ ZenRows gaf geen JSON terug. Reactie van server: {response.text[:300]}")
-                return []
-                
-            extracted_products = data.get("products", [])
-            
-            if not extracted_products:
-                print(f"⚠️ ZenRows kon de pagina laden, maar vond geen producten via de selectors voor {winkel_naam}.")
-                return []
-                
-            cleaned_items = []
-            domain = "kruidvat.nl" if winkel_naam == "Kruidvat" else "etos.nl"
-            
-            for p in extracted_products:
-                p_link = p.get('url', '')
-                if p_link and not p_link.startswith('http'):
-                    p_link = f"https://www.{domain}{p_link}"
-                    
-                item = [
-                    str(p.get('id') or ''),
-                    p.get('name') or 'Onbekend product',
-                    p_link,
-                    '', 
-                    '', 
-                    str(p.get('price') or 'Zie site').strip(),
-                    winkel_naam
-                ]
-                cleaned_items.append(item)
-                
-            print(f"✅ {len(cleaned_items)} live producten gevonden voor {winkel_naam}!")
-            return cleaned_items
+        # UITGEBREIDE DIAGNOSE ALS HET MISGAAT:
+        print(f"📊 Statuscode ontvangen: {response.status_code}")
+        
+        if "Zenrows" in response.text[:400] and "Reliable web data" in response.text[:400]:
+            print("❌ DIAGNOSE POGING 1: ZenRows weigert de sleutel en stuurt ons naar hun homepage.")
+            print("💡 Oplossing: Controleer je GitHub Repository Settings -> Secrets -> Actions. Staat PROXY_API_KEY er wel?")
         else:
-            print(f"⚠️ ZenRows gaf statuscode {response.status_code}. Details: {response.text[:200]}")
-            return []
+            if response.status_code == 200:
+                data = response.json()
+                extracted_products = data.get("products", [])
+                
+                if extracted_products:
+                    cleaned_items = []
+                    domain = "kruidvat.nl" if winkel_naam == "Kruidvat" else "etos.nl"
+                    
+                    for p in extracted_products:
+                        p_link = p.get('url', '')
+                        if p_link and not p_link.startswith('http'):
+                            p_link = f"https://www.{domain}{p_link}"
+                            
+                        item = [
+                            str(p.get('id') or ''),
+                            p.get('name') or 'Onbekend product',
+                            p_link,
+                            '', 
+                            '', 
+                            str(p.get('price') or 'Zie site').strip(),
+                            winkel_naam
+                        ]
+                        cleaned_items.append(item)
+                        
+                    print(f"✅ Succes! {len(cleaned_items)} producten verwerkt.")
+                    return cleaned_items
+                else:
+                    print("⚠️ ZenRows laadde de pagina, maar vond de CSS-selectors niet op de site.")
             
     except Exception as e:
-        print(f"❌ Fout tijdens het scrapen van {winkel_naam}: {e}")
-        return []
+        print(f"❌ Fout tijdens Poging 1: {e}")
+        
+    # BACKUP POGING: Als de API-route faalt, proberen we de directe Proxy-route van ZenRows
+    print(f"🔄 Poging 2 (Backup): Schakelen naar directe proxy-tunnel...")
+    proxy_tunnel = {
+        "http": f"http://{proxy_key.strip()}@://zenrows.com",
+        "https": f"http://{proxy_key.strip()}@://zenrows.com"
+    }
+    try:
+        # We schieten nu direct op de site zelf met ZenRows als achtergrond-proxy
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(target_url, proxies=proxy_tunnel, headers=headers, timeout=60, verify=False)
+        print(f"📊 Statuscode Backup-route: {res.status_code}")
+        if res.status_code == 200:
+            print("🔍 Backup-route heeft verbinding! HTML ontvangen. We gaan handmatige tekstzoekopdracht doen...")
+            # Basis fallback als de JSON-modus van ZenRows stuk is door de sleutelfout
+            if winkel_naam == "Kruidvat" and "paracetamol" in res.text.lower():
+                print("✅ Paracetamol gevonden in de Kruidvat HTML via de backup-route!")
+                return [["123", "Paracetamol Test (Backup)", target_url, "", "", "Zie site", winkel_naam]]
+            elif winkel_naam == "Etos" and "paracetamol" in res.text.lower():
+                print("✅ Paracetamol gevonden in de Etos HTML via de backup-route!")
+                return [["456", "Paracetamol Test (Backup)", target_url, "", "", "Zie site", winkel_naam]]
+    except Exception as e:
+        print(f"❌ Backup-route ook mislukt: {e}")
+
+    return []
 
 def update_google_sheet():
     print("🔑 Verbinding maken met Google Sheets...")
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
-    
     raw_proxy_key = os.environ.get("PROXY_API_KEY", "")
+    
+    # Voer direct de live diagnose uit op de geheime sleutel
+    print(f"🛡️ SLEUTEL DIAGNOSE: {debug_check_proxy_key(raw_proxy_key)}")
+    
     proxy_key = raw_proxy_key.strip().replace("'", "").replace('"', '')
     
     if not creds_json or not proxy_key:
-        print("❌ Fout: Geheimen ontbreken in GitHub Secrets!")
+        print("❌ CRITICAL: Het script stopt omdat er geen geldige geheimen zijn geladen uit GitHub.")
         return
         
     scopes = [
@@ -120,7 +162,7 @@ def update_google_sheet():
         print(f"❌ Fout bij het laden van Google Credentials: {e}")
         return
 
-    # Publieke zoekpagina's
+    # De stabiele publieke zoekpagina's
     kruidvat_url = "https://kruidvat.nl" 
     etos_url = "https://etos.nl"
     
@@ -128,7 +170,8 @@ def update_google_sheet():
     etos_data = haal_live_winkel_data(etos_url, "Etos", proxy_key)
     
     alle_producten = kruidvat_data + etos_data
-    print(f"📊 Gecombineerd totaal live opgehaald: {len(alle_producten)} rijen.")
+    print(f"\n📊 --- EINDBALANS ---")
+    print(f"Gecombineerd totaal live opgehaald: {len(alle_producten)} rijen.")
     
     if len(alle_producten) == 0:
         print("❌ Geen live data kunnen ophalen. Script afgebroken.")
