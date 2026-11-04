@@ -12,10 +12,9 @@ TABBLAD_DOEL = "Live Prijzen"
 def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
     print(f"📡 Live data ophalen van {winkel_naam} via ZenRows...")
     
-    # De basis-URL is nu volledig hardcoded zonder variabelen, om 'zenrows.com***' errors te voorkomen
     api_url = "https://zenrows.com"
     
-    # We instrueren ZenRows om de HTML direct te scrapen en als JSON terug te geven via CSS selectors
+    # CSS selectors specifiek voor de zoekpagina's van Kruidvat en Etos
     if winkel_naam == "Kruidvat":
         selectors = {
             "products": {
@@ -41,9 +40,9 @@ def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
             }
         }
 
-    # Alle parameters worden nu via een POST-request als schone JSON meegestuurd
-    # Dit voorkomt dat GitHub Actions de URL-string corrupt maakt met sterretjes
+    # ZenRows verwacht bij een GET-verzoek alle parameters in de URL query
     payload = {
+        "apikey": proxy_key,
         "url": target_url,
         "js_render": "true",
         "antibot": "true",
@@ -52,14 +51,17 @@ def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
         "js_instructions": json.dumps(selectors)
     }
     
-    # De apikey sturen we als queryparameter mee, requests handelt de encoding veilig af
-    params = {"apikey": proxy_key}
-    
     try:
-        response = requests.post(api_url, params=params, json=payload, timeout=60)
+        # Gewijzigd naar requests.get om te voldoen aan de ZenRows documentatie
+        response = requests.get(api_url, params=payload, timeout=60)
         
         if response.status_code == 200:
-            data = response.json()
+            try:
+                data = response.json()
+            except Exception:
+                print(f"⚠️ ZenRows gaf geen JSON terug. Reactie van server: {response.text[:300]}")
+                return []
+                
             extracted_products = data.get("products", [])
             
             if not extracted_products:
@@ -88,18 +90,17 @@ def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
             print(f"✅ {len(cleaned_items)} live producten gevonden voor {winkel_naam}!")
             return cleaned_items
         else:
-            print(f"⚠️ ZenRows gaf een foutmelding (Status {response.status_code}) voor {winkel_naam}.")
+            print(f"⚠️ ZenRows gaf statuscode {response.status_code}. Details: {response.text[:200]}")
             return []
             
     except Exception as e:
-        print(f"❌ Critical error tijdens het scrapen van {winkel_naam}: {e}")
+        print(f"❌ Fout tijdens het scrapen van {winkel_naam}: {e}")
         return []
 
 def update_google_sheet():
     print("🔑 Verbinding maken met Google Sheets...")
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     
-    # Haal de proxy key op en strip eventuele verborgen spaties/newlines of aanhalingstekens er direct af
     raw_proxy_key = os.environ.get("PROXY_API_KEY", "")
     proxy_key = raw_proxy_key.strip().replace("'", "").replace('"', '')
     
@@ -119,7 +120,7 @@ def update_google_sheet():
         print(f"❌ Fout bij het laden van Google Credentials: {e}")
         return
 
-    # We roepen de stabiele publieke zoekpagina's aan
+    # Publieke zoekpagina's
     kruidvat_url = "https://kruidvat.nl" 
     etos_url = "https://etos.nl"
     
