@@ -1,8 +1,9 @@
+name: Dagelijkse Prijs Update
+
 on:
   schedule:
-    # Dit zorgt ervoor dat het script elke nacht om 03:00 uur draait
     - cron: '0 3 * * *'
-  workflow_dispatch: # Dit voegt een handmatige startknop toe op GitHub
+  workflow_dispatch: 
 
 jobs:
   scrape:
@@ -18,9 +19,11 @@ jobs:
 
     - name: Benodigde bibliotheken installeren
       run: |
-        pip install gspread google-auth
+        pip install gspread google-auth requests
 
     - name: Scraper script uitvoeren
       env:
+        # HIER ZORGEN WE ERVOOR DAT BEIDE SLEUTELS WORDEN DOORGEGEVEN!
         GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        PROXY_API_KEY: ${{ secrets.PROXY_API_KEY }}
       run: python update_prices.py
