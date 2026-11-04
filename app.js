@@ -29,10 +29,11 @@ function toonProducten(productenLijst) {
         return;
     }
     productenLijst.forEach(prod => {
-        let actieBadge = prod.actie ? `<div class="badge" style="background:#e74c3c; color:white; padding:4px 8px; border-radius:4px; font-size:12px; display:inline-block; margin-top:5px;">🔥 ACTIE: ${prod.actie}</div>` : "";
+        let actieBadge = (prod.actie && prod.actie.trim() !== "" && prod.actie !== "undefined") ? `<div class="badge" style="background:#e74c3c; color:white; padding:4px 8px; border-radius:4px; font-size:12px; display:inline-block; margin-top:5px; font-weight:bold;">🔥 ACTIE: ${prod.actie}</div>` : "";
+        
         container.innerHTML += `
-            <div class="product-card" style="background:white; padding:15px; border-radius:8px; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
-                <div class="title" style="font-size:18px; font-weight:bold;">${prod.naam}</div>
+            <div class="product-card" style="background:white; padding:15px; border-radius:8px; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.05); border: 1px solid #eee;">
+                <div class="title" style="font-size:18px; font-weight:bold; color:#2c3e50;">${prod.naam}</div>
                 <div class="price" style="color:#2ecc71; font-weight:bold; margin:5px 0;">Prijs: ${prod.prijs}</div>
                 ${actieBadge}
                 <a href="${prod.link}" target="_blank" class="btn" style="display:block; text-align:center; background:#3498db; color:white; padding:10px; border-radius:6px; text-decoration:none; margin-top:10px; font-weight:bold;">Bekijk bij Webshop</a>
@@ -49,24 +50,27 @@ async function startApp() {
         const data = parseCSV(csvTekst);
         if (data.length < 2) return;
 
-        // We zoeken automatisch in welke kolommen de data staat op basis van jouw Rij 1!
+        // We zoeken heel breed naar de namen in Rij 1 van je Google Sheet
         const headers = data[0].map(h => h.toLowerCase().trim());
-        const idIdx = headers.findIndex(h => h.includes('id'));
-        const naamIdx = headers.findIndex(h => h.includes('naam') || h.includes('title') || h.includes('product'));
-        const linkIdx = headers.findIndex(h => h.includes('link') || h.includes('url') || h.includes('href'));
-        const prijsIdx = headers.findIndex(h => h.includes('prijs') || h.includes('price') || h.includes('bedrag'));
-        const actieIdx = headers.findIndex(h => h.includes('actie') || h.includes('aantal'));
+        
+        // Als hij de naam niet vindt, gokt hij de meest logische kolom op basis van jouw volgorde!
+        const idIdx = headers.findIndex(h => h.includes('id')) !== -1 ? headers.findIndex(h => h.includes('id')) : 0;
+        const naamIdx = headers.findIndex(h => h.includes('naam') || h.includes('title') || h.includes('product')) !== -1 ? headers.findIndex(h => h.includes('naam') || h.includes('title') || h.includes('product')) : 1;
+        const linkIdx = headers.findIndex(h => h.includes('link') || h.includes('url') || h.includes('href')) !== -1 ? headers.findIndex(h => h.includes('link') || h.includes('url') || h.includes('href')) : 2;
+        const actieIdx = headers.findIndex(h => h.includes('actie') || h.includes('aantal')) !== -1 ? headers.findIndex(h => h.includes('actie') || h.includes('aantal')) : 3;
+        const prijsIdx = headers.findIndex(h => h.includes('prijs') || h.includes('price') || h.includes('bedrag')) !== -1 ? headers.findIndex(h => h.includes('prijs') || h.includes('price') || h.includes('bedrag')) : 5; // Kolom F is 5
 
         const rijen = data.slice(1);
         alleProducten = rijen.map(kolommen => {
+            if (!kolommen || kolommen.length < 2) return null;
             return {
-                id: idIdx !== -1 ? kolommen[idIdx] : "",
-                naam: naamIdx !== -1 ? kolommen[naamIdx] : "",
-                link: linkIdx !== -1 ? kolommen[linkIdx] : "#",
-                prijs: prijsIdx !== -1 ? kolommen[prijsIdx] : "Op aanvraag",
-                actie: actieIdx !== -1 ? kolommen[actieIdx] : ""
+                id: kolommen[idIdx] ? kolommen[idIdx].toString().trim() : "",
+                naam: kolommen[naamIdx] ? kolommen[naamIdx].toString().trim() : "",
+                link: kolommen[linkIdx] ? kolommen[linkIdx].toString().trim() : "#",
+                actie: actieIdx !== -1 && kolommen[actieIdx] ? kolommen[actieIdx].toString().trim() : "",
+                prijs: kolommen[prijsIdx] ? kolommen[prijsIdx].toString().trim() : "Bekijk op site"
             };
-        }).filter(p => p.naam && p.naam.trim() !== "");
+        }).filter(p => p && p.naam && p.naam !== "");
 
         toonProducten(alleProducten);
 
@@ -76,7 +80,7 @@ async function startApp() {
             toonProducten(gefilterd);
         });
     } catch (fout) {
-        container.innerHTML = "<p style='color:red; text-align:center;'>De database is momenteel niet bereikbaar.</p>";
+        container.innerHTML = "<p style='color:red; text-align:center;'>De database is momentevel niet bereikbaar.</p>";
     }
 }
 startApp();
