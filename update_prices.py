@@ -9,22 +9,29 @@ SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_DOEL = "Live Prijzen"
 
 def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
-    """Haalt live data op via ZenRows met een veilige parameter-constructie."""
+    """Haalt live data op via ZenRows met JavaScript rendering ingeschakeld."""
     print(f"📡 Live data ophalen van {winkel_naam} via proxy-omleiding...")
     
-    # De stabiele basissite van de proxy
     api_url = "https://zenrows.com"
     
-    # We laten Python ZELF de URL bouwen om misvormingen en NameResolutionErrors te voorkomen
+    # We voegen premium parameters toe om de JavaScript-beveiliging van Cloudflare te kraken
     payload = {
         "key": proxy_key,
-        "url": target_url
+        "url": target_url,
+        "js_render": "true", # Dwing ZenRows om JavaScript uit te voeren (Cruciaal!)
+        "premium_proxy": "true" # Gebruik hoogwaardige residentiële IP-adressen
     }
     
     try:
-        response = requests.get(api_url, params=payload, timeout=30)
+        response = requests.get(api_url, params=payload, timeout=45)
         if response.status_code == 200:
-            data = response.json()
+            # Controleer of het antwoord daadwerkelijk JSON bevat
+            try:
+                data = response.json()
+            except Exception:
+                print(f"⚠️ {winkel_naam} gaf tekst terug in plaats van JSON. Beveiliging blokkeert nog.")
+                return []
+                
             products = data.get('products', []) or data.get('results', [])
             
             cleaned_items = []
@@ -50,7 +57,8 @@ def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
             print(f"✅ {len(cleaned_items)} live producten gevonden voor {winkel_naam}!")
             return cleaned_items
         else:
-            print(f"⚠️ Proxy gaf statuscode {response.status_code} voor {winkel_naam}. Controleer je proxy-credits.")
+            print(f"⚠️ Proxy gaf statuscode {response.status_code} voor {winkel_naam}.")
+            print(f"Inhoud van de fout: {response.text[:200]}")
     except Exception as e:
         print(f"❌ Fout tijdens het live scrapen van {winkel_naam}: {e}")
     return []
