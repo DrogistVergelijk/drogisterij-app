@@ -6,7 +6,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # --- CONFIGURATIE ---
 # 1. VERVANG DIT door de exacte naam van jouw Google Sheet bestand!
-GOOGLE_SHEET_NAME = "Drogisterij Database" 
+GOOGLE_SHEET_NAME = "https://docs.google.com/spreadsheets/d/1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA/edit?gid=0#gid=0" 
 
 # 2. VERVANG DIT door de naam van het tabblad waar de live prijzen in moeten komen
 TABBLAD_NAAM = "Live Prijzen" 
