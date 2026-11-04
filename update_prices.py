@@ -27,7 +27,7 @@ def haal_live_winkel_data(url, winkel_naam, proxy_key):
                 raw_price = p.get('price', {}).get('value') if isinstance(p.get('price'), dict) else p.get('price', 'Zie site')
                 
                 # Bepaal de link op basis van de winkel
-                domain = "kruidvat.nl" if winkel_name == "Kruidvat" else "etos.nl"
+                domain = "kruidvat.nl" if winkel_naam == "Kruidvat" else "etos.nl"
                 p_link = p.get('url', '')
                 if p_link and not p_link.startswith('http'):
                     p_link = f"https://www.{domain}{p_link}"
