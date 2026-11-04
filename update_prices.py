@@ -5,58 +5,80 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- CONFIGURATIE ---
+# Plak hier de ID van jouw Google Sheet (te vinden in de URL van je spreadsheet)
 SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_DOEL = "Live Prijzen"
 
 def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
-    print(f"📡 Live data ophalen van {winkel_naam} via proxy-omleiding...")
+    print(f"📡 Live data ophalen van {winkel_naam} via ZenRows...")
     
-    # ZenRows API vereist de parameters exact op deze manier in de querystring
-    api_url = "https://zenrows.com"
+    # ZenRows API URL-opbouw conform de officiële REST API specificaties
+    # We sturen de API-sleutel direct mee in de URL-path om parametermissers te voorkomen
+    api_url = f"https://zenrows.com{proxy_key}"
+    
+    # We instrueren ZenRows om de HTML direct te scrapen en als JSON terug te geven via CSS selectors
+    # Hierdoor hoeven we zelf geen ingewikkelde HTML-soep te parsen
+    if winkel_naam == "Kruidvat":
+        selectors = {
+            "products": {
+                "list": ".product-tile", # CSS selector voor het productblok bij Kruidvat
+                "details": {
+                    "name": ".product-tile__title",
+                    "price": ".text-price",
+                    "url": ".product-tile__link @href",
+                    "id": ".product-tile @data-product-code"
+                }
+            }
+        }
+    else: # Etos
+        selectors = {
+            "products": {
+                "list": ".product-tile", # CSS selector voor het productblok bij Etos
+                "details": {
+                    "name": ".product-title",
+                    "price": ".price-format",
+                    "url": ".product-link @href",
+                    "id": ".product-tile @data-id"
+                }
+            }
+        }
+
     payload = {
-        "apikey": proxy_key,
         "url": target_url,
         "js_render": "true",
         "antibot": "true",
-        "premium_proxy": "true"
+        "premium_proxy": "true",
+        "json_response": "true", # Zorgt ervoor dat ZenRows de CSS-extractie uitvoert
+        "js_instructions": json.dumps(selectors)
     }
     
     try:
-        # We dwingen requests af om de parameters correct te encoden
-        response = requests.get(api_url, params=payload, timeout=60)
+        response = requests.post(api_url, json=payload, timeout=60)
         
         if response.status_code == 200:
-            inhoud = response.text[:200].replace('\n', ' ')
-            print(f"🔍 debug [{winkel_naam}]: Eerste 200 tekens ontvangen: {inhoud}")
+            data = response.json()
             
-            # Als we per ongeluk nog steeds de ZenRows site krijgen, direct ingrijpen
-            if "Zenrows" in response.text[:300] and "Reliable web data" in response.text[:300]:
-                print(f"❌ Fout: ZenRows API-sleutel ongeldig of verkeerd aangeroepen. We kregen de ZenRows-site terug.")
-                return []
-
-            try:
-                data = response.json()
-            except Exception:
-                print(f"⚠️ {winkel_naam} gaf HTML terug. We proberen de prijzen via HTML-scrapers te zoeken...")
+            # Controleer of ZenRows data heeft kunnen extraheren
+            extracted_products = data.get("products", [])
+            if not extracted_products:
+                print(f"⚠️ ZenRows kon de pagina laden, maar vond geen producten via de selectors voor {winkel_naam}.")
                 return []
                 
-            products = data.get('products', []) or data.get('results', []) or data.get('data', {}).get('products', [])
             cleaned_items = []
+            domain = "kruidvat.nl" if winkel_naam == "Kruidvat" else "etos.nl"
             
-            for p in products:
-                raw_price = p.get('price', {}).get('value') if isinstance(p.get('price'), dict) else p.get('price', 'Zie site')
-                domain = "kruidvat.nl" if winkel_naam == "Kruidvat" else "etos.nl"
+            for p in extracted_products:
                 p_link = p.get('url', '')
                 if p_link and not p_link.startswith('http'):
                     p_link = f"https://www.{domain}{p_link}"
                     
                 item = [
-                    str(p.get('code') or p.get('id', '')),
-                    p.get('name') or p.get('title', 'Onbekend product'),
+                    str(p.get('id') or ''),
+                    p.get('name') or 'Onbekend product',
                     p_link,
-                    p.get('promoText') or (p.get('activePromotion', {}).get('description') if isinstance(p.get('activePromotion'), dict) else ''),
-                    '',  
-                    str(raw_price),
+                    '', # actie
+                    '', # actie-deal
+                    str(p.get('price') or 'Zie site').strip(),
                     winkel_naam
                 ]
                 cleaned_items.append(item)
@@ -64,10 +86,11 @@ def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
             print(f"✅ {len(cleaned_items)} live producten gevonden voor {winkel_naam}!")
             return cleaned_items
         else:
-            print(f"⚠️ Proxy gaf statuscode {response.status_code} voor {winkel_naam}.")
+            print(f"⚠️ ZenRows gaf een foutmelding (Status {response.status_code}) voor {winkel_naam}.")
             return []
+            
     except Exception as e:
-        print(f"❌ Fout tijdens het live scrapen van {winkel_naam}: {e}")
+        print(f"❌ Critical error tijdens het scrapen van {winkel_naam}: {e}")
         return []
 
 def update_google_sheet():
@@ -91,7 +114,7 @@ def update_google_sheet():
         print(f"❌ Fout bij het laden van Google Credentials: {e}")
         return
 
-    # We gebruiken de officiële mobiele API-zoeklinks die minder streng beveiligd zijn
+    # We roepen nu de echte, publieke zoekpagina's aan die gegarandeerd bestaan
     kruidvat_url = "https://kruidvat.nl" 
     etos_url = "https://etos.nl"
     
