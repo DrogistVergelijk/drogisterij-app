@@ -21,6 +21,14 @@ function parseCSV(text) {
     return lines;
 }
 
+// Rekenhulp die prijzen (zoals €6,29 of 6.29) omzet naar getallen voor de sortering
+function haalPrijsGetal(prijsTekst) {
+    if (!prijsTekst) return 9999;
+    let opgeschoond = prijsTekst.toString().replace(/[^0-9\.,]/g, '').replace(',', '.');
+    let nummer = parseFloat(opgeschoond);
+    return isNaN(nummer) ? 9999 : nummer;
+}
+
 function toonProducten(productenLijst) {
     const container = document.getElementById('products-container');
     container.innerHTML = "";
@@ -30,7 +38,6 @@ function toonProducten(productenLijst) {
     }
     productenLijst.forEach(prod => {
         let actieBadge = "";
-        // We controleren of er een actie-aantal óf een actie-prijs in jouw spreadsheet staat
         if (prod.actieAantal && prod.actieAantal.trim() !== "" && prod.actieAantal !== "undefined") {
             let badgeTekst = (prod.actiePrijs && prod.actiePrijs.trim() !== "" && prod.actiePrijs !== "undefined") 
                 ? `${prod.actieAantal} voor €${prod.actiePrijs}` 
@@ -41,7 +48,7 @@ function toonProducten(productenLijst) {
         container.innerHTML += `
             <div class="product-card" style="background:white; padding:15px; border-radius:8px; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.05); border: 1px solid #eee;">
                 <div class="title" style="font-size:18px; font-weight:bold; color:#2c3e50;">${prod.naam}</div>
-                <div class="price" style="color:#2ecc71; font-weight:bold; margin:5px 0;">Prijs: ${prod.prijs}</div>
+                <div class="price" style="color:#2ecc71; font-weight:bold; margin:5px 0;">Stukprijs: ${prod.prijs}</div>
                 ${actieBadge}
                 <a href="${prod.link}" target="_blank" class="btn" style="display:block; text-align:center; background:#3498db; color:white; padding:10px; border-radius:6px; text-decoration:none; margin-top:10px; font-weight:bold;">Bekijk bij Webshop</a>
             </div>
@@ -57,10 +64,6 @@ async function startApp() {
         const data = parseCSV(csvTekst);
         if (data.length < 2) return;
 
-        const headers = data[0].map(h => h.toLowerCase().trim());
-        
-        // We dwingen de app om exact naar jouw vaste volgorde te kijken:
-        // A=ID(0), B=Naam(1), C=Link(2), D=Actie_Aantal(3), E=Actie_Prijs(4), F=Prijs(5)
         const idIdx = 0;
         const naamIdx = 1;
         const linkIdx = 2;
@@ -81,11 +84,17 @@ async function startApp() {
             };
         }).filter(p => p && p.naam && p.naam !== "");
 
+        // Sorteer de hele lijst automatisch van laagste naar hoogste stukprijs
+        alleProducten.sort((a, b) => haalPrijsGetal(a.prijs) - haalPrijsGetal(b.prijs));
+
         toonProducten(alleProducten);
 
         document.getElementById('search').addEventListener('input', (e) => {
             const zoekterm = e.target.value.toLowerCase();
             const gefilterd = alleProducten.filter(p => p.naam.toLowerCase().includes(zoekterm));
+            
+            // Zorg dat de zoekresultaten ook netjes gesorteerd blijven op prijs
+            gefilterd.sort((a, b) => haalPrijsGetal(a.prijs) - haalPrijsGetal(b.prijs));
             toonProducten(gefilterd);
         });
     } catch (fout) {
