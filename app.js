@@ -29,8 +29,15 @@ function toonProducten(productenLijst) {
         return;
     }
     productenLijst.forEach(prod => {
-        let actieBadge = (prod.actie && prod.actie.trim() !== "" && prod.actie !== "undefined") ? `<div class="badge" style="background:#e74c3c; color:white; padding:4px 8px; border-radius:4px; font-size:12px; display:inline-block; margin-top:5px; font-weight:bold;">🔥 ACTIE: ${prod.actie}</div>` : "";
-        
+        let actieBadge = "";
+        // We controleren of er een actie-aantal óf een actie-prijs in jouw spreadsheet staat
+        if (prod.actieAantal && prod.actieAantal.trim() !== "" && prod.actieAantal !== "undefined") {
+            let badgeTekst = (prod.actiePrijs && prod.actiePrijs.trim() !== "" && prod.actiePrijs !== "undefined") 
+                ? `${prod.actieAantal} voor €${prod.actiePrijs}` 
+                : prod.actieAantal;
+            actieBadge = `<div class="badge" style="background:#e74c3c; color:white; padding:4px 8px; border-radius:4px; font-size:12px; display:inline-block; margin-top:5px; font-weight:bold;">🔥 ACTIE: ${badgeTekst}</div>`;
+        }
+
         container.innerHTML += `
             <div class="product-card" style="background:white; padding:15px; border-radius:8px; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.05); border: 1px solid #eee;">
                 <div class="title" style="font-size:18px; font-weight:bold; color:#2c3e50;">${prod.naam}</div>
@@ -50,15 +57,16 @@ async function startApp() {
         const data = parseCSV(csvTekst);
         if (data.length < 2) return;
 
-        // We zoeken heel breed naar de namen in Rij 1 van je Google Sheet
         const headers = data[0].map(h => h.toLowerCase().trim());
         
-        // Als hij de naam niet vindt, gokt hij de meest logische kolom op basis van jouw volgorde!
-        const idIdx = headers.findIndex(h => h.includes('id')) !== -1 ? headers.findIndex(h => h.includes('id')) : 0;
-        const naamIdx = headers.findIndex(h => h.includes('naam') || h.includes('title') || h.includes('product')) !== -1 ? headers.findIndex(h => h.includes('naam') || h.includes('title') || h.includes('product')) : 1;
-        const linkIdx = headers.findIndex(h => h.includes('link') || h.includes('url') || h.includes('href')) !== -1 ? headers.findIndex(h => h.includes('link') || h.includes('url') || h.includes('href')) : 2;
-        const actieIdx = headers.findIndex(h => h.includes('actie') || h.includes('aantal')) !== -1 ? headers.findIndex(h => h.includes('actie') || h.includes('aantal')) : 3;
-        const prijsIdx = headers.findIndex(h => h.includes('prijs') || h.includes('price') || h.includes('bedrag')) !== -1 ? headers.findIndex(h => h.includes('prijs') || h.includes('price') || h.includes('bedrag')) : 5; // Kolom F is 5
+        // We dwingen de app om exact naar jouw vaste volgorde te kijken:
+        // A=ID(0), B=Naam(1), C=Link(2), D=Actie_Aantal(3), E=Actie_Prijs(4), F=Prijs(5)
+        const idIdx = 0;
+        const naamIdx = 1;
+        const linkIdx = 2;
+        const actieAantalIdx = 3;
+        const actiePrijsIdx = 4;
+        const prijsIdx = 5;
 
         const rijen = data.slice(1);
         alleProducten = rijen.map(kolommen => {
@@ -67,7 +75,8 @@ async function startApp() {
                 id: kolommen[idIdx] ? kolommen[idIdx].toString().trim() : "",
                 naam: kolommen[naamIdx] ? kolommen[naamIdx].toString().trim() : "",
                 link: kolommen[linkIdx] ? kolommen[linkIdx].toString().trim() : "#",
-                actie: actieIdx !== -1 && kolommen[actieIdx] ? kolommen[actieIdx].toString().trim() : "",
+                actieAantal: kolommen[actieAantalIdx] ? kolommen[actieAantalIdx].toString().trim() : "",
+                actiePrijs: kolommen[actiePrijsIdx] ? kolommen[actiePrijsIdx].toString().trim() : "",
                 prijs: kolommen[prijsIdx] ? kolommen[prijsIdx].toString().trim() : "Bekijk op site"
             };
         }).filter(p => p && p.naam && p.naam !== "");
@@ -80,7 +89,7 @@ async function startApp() {
             toonProducten(gefilterd);
         });
     } catch (fout) {
-        container.innerHTML = "<p style='color:red; text-align:center;'>De database is momentevel niet bereikbaar.</p>";
+        container.innerHTML = "<p style='color:red; text-align:center;'>De database is momenteel niet bereikbaar.</p>";
     }
 }
 startApp();
