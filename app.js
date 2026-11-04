@@ -21,12 +21,19 @@ function parseCSV(text) {
     return lines;
 }
 
-// Rekenhulp die prijzen (zoals €6,29 of 6.29) omzet naar getallen voor de sortering
-function haalPrijsGetal(prijsTekst) {
-    if (!prijsTekst) return 9999;
-    let opgeschoond = prijsTekst.toString().replace(/[^0-9\.,]/g, '').replace(',', '.');
-    let nummer = parseFloat(opgeschoond);
-    return isNaN(nummer) ? 9999 : nummer;
+// Slimme rekenhulp die de actuele prijs berekent om mee te sorteren
+function geefHuidigePrijsGetal(prod) {
+    // Als er een geldige actie-prijs (E) is, gebruiken we die!
+    if (prod.actieDeal && prod.actieDeal.trim() !== "" && !isNaN(parseFloat(prod.actieDeal.replace(',', '.')))) {
+        return parseFloat(prod.actieDeal.replace(',', '.'));
+    }
+    // Anders vallen we terug op de originele prijs (F)
+    if (prod.prijs) {
+        let opgeschoond = prod.prijs.toString().replace(/[^0-9\.,]/g, '').replace(',', '.');
+        let nummer = parseFloat(opgeschoond);
+        return isNaN(nummer) ? 9999 : nummer;
+    }
+    return 9999;
 }
 
 function toonProducten(productenLijst) {
@@ -38,17 +45,35 @@ function toonProducten(productenLijst) {
     }
     productenLijst.forEach(prod => {
         let actieBadge = "";
-        if (prod.actieAantal && prod.actieAantal.trim() !== "" && prod.actieAantal !== "undefined") {
-            let badgeTekst = (prod.actiePrijs && prod.actiePrijs.trim() !== "" && prod.actiePrijs !== "undefined") 
-                ? `${prod.actieAantal} voor €${prod.actiePrijs}` 
-                : prod.actieAantal;
-            actieBadge = `<div class="badge" style="background:#e74c3c; color:white; padding:4px 8px; border-radius:4px; font-size:12px; display:inline-block; margin-top:5px; font-weight:bold;">🔥 ACTIE: ${badgeTekst}</div>`;
+        let prijsWeergave = `<div class="price" style="color:#2ecc71; font-weight:bold; margin:5px 0;">Stukprijs: ${prod.prijs}</div>`;
+        
+        // Als er een actie en een dealprijs is (bijv. 3 voor €11)
+        if (prod.actie && prod.actie.trim() !== "" && prod.actie !== "undefined") {
+            let dealTekst = (prod.actieDeal && prod.actieDeal.trim() !== "" && prod.actieDeal !== "undefined")
+                ? `${prod.actie} ${prod.actieDeal}`
+                : prod.actie;
+            
+            if (prod.actie.toLowerCase().includes('voor') && !prod.actieDeal.includes('€')) {
+                dealTekst = `${prod.actie} €${prod.actieDeal}`;
+            }
+            
+            actieBadge = `<div class="badge" style="background:#e74c3c; color:white; padding:4px 8px; border-radius:4px; font-size:12px; display:inline-block; margin-top:5px; font-weight:bold;">🔥 ACTIE: ${dealTekst}</div>`;
+            
+            // Als er een actieprijs is, tonen we de originele prijs doorgestreept en de actieprijs dikgedrukt!
+            if (prod.actieDeal && prod.actieDeal.trim() !== "" && prod.actieDeal !== "undefined") {
+                prijsWeergave = `
+                    <div class="price" style="margin:5px 0;">
+                        <span style="text-decoration: line-through; color: #888; font-size: 14px; margin-right: 8px;">Oud: ${prod.prijs}</span>
+                        <span style="color:#2ecc71; font-weight:bold; font-size: 18px;">Nu: €${prod.actieDeal}</span>
+                    </div>
+                `;
+            }
         }
 
         container.innerHTML += `
             <div class="product-card" style="background:white; padding:15px; border-radius:8px; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.05); border: 1px solid #eee;">
                 <div class="title" style="font-size:18px; font-weight:bold; color:#2c3e50;">${prod.naam}</div>
-                <div class="price" style="color:#2ecc71; font-weight:bold; margin:5px 0;">Stukprijs: ${prod.prijs}</div>
+                ${prijsWeergave}
                 ${actieBadge}
                 <a href="${prod.link}" target="_blank" class="btn" style="display:block; text-align:center; background:#3498db; color:white; padding:10px; border-radius:6px; text-decoration:none; margin-top:10px; font-weight:bold;">Bekijk bij Webshop</a>
             </div>
@@ -64,12 +89,12 @@ async function startApp() {
         const data = parseCSV(csvTekst);
         if (data.length < 2) return;
 
-        const idIdx = 0;
-        const naamIdx = 1;
-        const linkIdx = 2;
-        const actieAantalIdx = 3;
-        const actiePrijsIdx = 4;
-        const prijsIdx = 5;
+        const idIdx = 0; // Kolom A
+        const naamIdx = 1; // Kolom B
+        const linkIdx = 2; // Kolom C
+        const actieIdx = 3; // Kolom D
+        const actieDealIdx = 4; // Kolom E
+        const prijsIdx = 5; // Kolom F
 
         const rijen = data.slice(1);
         alleProducten = rijen.map(kolommen => {
@@ -78,23 +103,21 @@ async function startApp() {
                 id: kolommen[idIdx] ? kolommen[idIdx].toString().trim() : "",
                 naam: kolommen[naamIdx] ? kolommen[naamIdx].toString().trim() : "",
                 link: kolommen[linkIdx] ? kolommen[linkIdx].toString().trim() : "#",
-                actieAantal: kolommen[actieAantalIdx] ? kolommen[actieAantalIdx].toString().trim() : "",
-                actiePrijs: kolommen[actiePrijsIdx] ? kolommen[actiePrijsIdx].toString().trim() : "",
-                prijs: kolommen[prijsIdx] ? kolommen[prijsIdx].toString().trim() : "Bekijk op site"
+                actie: kolommen[actieIdx] ? kolommen[actieIdx].toString().trim() : "",
+                actieDeal: kolommen[actieDealIdx] ? kolommen[actieDealIdx].toString().trim() : "",
+                prijs: kolommen[prijsIdx] ? kolommen[prijsIdx].toString().trim() : ""
             };
         }).filter(p => p && p.naam && p.naam !== "");
 
-        // Sorteer de hele lijst automatisch van laagste naar hoogste stukprijs
-        alleProducten.sort((a, b) => haalPrijsGetal(a.prijs) - haalPrijsGetal(b.prijs));
+        // Sorteer op basis van de slimme actuele prijs (eerst actieprijs, anders originele prijs)
+        alleProducten.sort((a, b) => geefHuidigePrijsGetal(a) - geefHuidigePrijsGetal(b));
 
         toonProducten(alleProducten);
 
         document.getElementById('search').addEventListener('input', (e) => {
             const zoekterm = e.target.value.toLowerCase();
             const gefilterd = alleProducten.filter(p => p.naam.toLowerCase().includes(zoekterm));
-            
-            // Zorg dat de zoekresultaten ook netjes gesorteerd blijven op prijs
-            gefilterd.sort((a, b) => haalPrijsGetal(a.prijs) - haalPrijsGetal(b.prijs));
+            gefilterd.sort((a, b) => geefHuidigePrijsGetal(a) - geefHuidigePrijsGetal(b));
             toonProducten(gefilterd);
         });
     } catch (fout) {
