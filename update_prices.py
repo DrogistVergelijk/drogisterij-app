@@ -2,15 +2,13 @@ import os
 import json
 import gspread
 from google.oauth2.service_account import Credentials
-import google.auth.transport.requests
 
 # --- CONFIGURATIE ---
-# PLAK HIER jouw unieke Spreadsheet ID uit de URL!
 SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_NAAM = "Live Prijzen"
 
 def update_google_sheet():
-    print("🔑 Inloggen bij Google Sheets met kloksynchronisatie...")
+    print("🔑 Inloggen bij Google Sheets met de vernieuwde robot-rechten...")
     
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     if not creds_json:
@@ -18,25 +16,17 @@ def update_google_sheet():
         return
 
     scopes = [
-        "https://googleapis.com",
-        "https://googleapis.com"
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
     ]
     
     try:
         creds_dict = json.loads(creds_json)
-        
-        # Oplossing voor de klok-fout: we dwingen een tijdsmarge af van 10 seconden
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        
-        # We verversen de token handmatig vóór gspread ermee aan de haal gaat om de fout op te vangen
-        request = google.auth.transport.requests.Request()
-        credentials.refresh(request)
-        
         client = gspread.authorize(credentials)
-        print("✅ Verbinding met Google succesvol gesynchroniseerd!")
+        print("✅ Succesvol geautoriseerd door Google Labs!")
     except Exception as e:
-        print(f"❌ Inlogfout bij Google Auth (Klok/Token probleem): {e}")
-        print("💡 TIP: Als deze fout blijft, is de service-account sleutel in Google Cloud mogelijk gedeactiveerd.")
+        print(f"❌ Inlogfout bij Google Auth: {e}")
         return
 
     try:
