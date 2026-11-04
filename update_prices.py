@@ -9,15 +9,18 @@ SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_NAAM = "Live Prijzen"
 
 def update_google_sheet():
-    print("🔑 Inloggen bij Google Sheets via moderne Google Auth...")
+    print("🔑 Inloggen bij Google Sheets via expliciete API Scopes...")
     
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     if not creds_json:
         print("❌ Fout: Geen GOOGLE_CREDENTIALS gevonden in GitHub Secrets!")
         return
 
+    # Dit zijn de exacte, ouderwetse maar onfeilbare scopes die Google dwingen om data-toegang te geven
     scopes = [
-        "https://googleapis.com",
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
         "https://googleapis.com"
     ]
     
@@ -25,13 +28,13 @@ def update_google_sheet():
         creds_dict = json.loads(creds_json)
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(credentials)
-        print("✅ Succesvol ingelogd bij Google!")
+        print("✅ Verbinding met authenticatieserver geslaagd!")
     except Exception as e:
-        print(f"❌ Inlogfout bij Google: {e}")
+        print(f"❌ Inlogfout bij Google Auth: {e}")
         return
 
     try:
-        # We openen de sheet nu DIRECT op basis van de unieke ID (onfeilbaar)
+        # Openen van de sheet
         print(f"📂 Openen van spreadsheet ID: {SPREADSHEET_ID}...")
         sheet = client.open_by_key(SPREADSHEET_ID)
         
@@ -51,7 +54,7 @@ def update_google_sheet():
 
         schone_rijen = raw_data[1:] 
 
-        # Open en vul het doeltabblad
+        # Open en vul het doeltabblad Live Prijzen
         worksheet = sheet.worksheet(TABBLAD_NAAM)
         worksheet.clear()
         
