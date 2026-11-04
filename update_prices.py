@@ -4,15 +4,17 @@ import requests
 import gspread
 import re
 import traceback
+import datetime
 
 # --- CONFIGURATIE ---
-# Plak hier de ID van jouw Google Sheet (te vinden in de URL van je spreadsheet)
 SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
+TABBLAD_BRON = "Producten Database" # Het nieuwe tabblad met je product-URL's
 TABBLAD_DOEL = "Live Prijzen"
 
-def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
-    print(f"\n📡 --- START SCRAPING VOOR {winkel_naam.upper()} ---")
-    
+def haal_live_prijs(target_url, winkel_naam, proxy_key):
+    if not target_url or target_url.strip() == "" or "Niet leverbaar" in target_url:
+        return "Niet leverbaar"
+        
     api_url = "https://zenrows.com"
     payload = {
         "apikey": proxy_key.strip(),
@@ -23,56 +25,31 @@ def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
     }
     
     try:
-        response = requests.get(api_url, params=payload, timeout=60)
-        
+        response = requests.get(api_url, params=payload, timeout=45)
         if response.status_code != 200:
-            print(f"⚠️ Fout bij ZenRows server: {response.text[:200]}")
-            return []
+            return "Zie site"
 
         html_content = response.text
-        print("🔍 HTML succesvol ontvangen! We starten de lokale data-extractie...")
+        schone_prijs = "Zie site"
         
-        # We zoeken specifiek naar prijzen die tussen HTML-tags of in specifieke structuren staan
-        prijzen = re.findall(r'>\s*€?\s*(\d+[\.,]\d{2})\s*<', html_content)
-        if not prijzen:
-            prijzen = re.findall(r'(\d+[\.,]\d{2})', html_content)
-            
-        # Filter vreemde getallen en dummy data eruit
-        geldige_prijzen = [p for p in prijzen if not p.startswith("00") and not p.startswith("100") and p != "5,00" and p != "5.00"]
-        
-        if geldige_prijzen:
-            schone_prijs = f"€ {geldige_prijzen[0].replace('.', ',')}"
-        else:
-            schone_prijs = "Zie site"
-            
-        cleaned_items = []
         if winkel_naam == "Kruidvat":
-            cleaned_items.append([
-                "kv-16281",
-                "Kruidvat Paracetamol 500mg (50st)",
-                target_url,
-                "Live Prijs",
-                "",
-                schone_prijs,
-                winkel_naam
-            ])
+            meta_price = re.search(r'itemprop="price"\s+content="([^"]+)"', html_content)
+            if meta_price:
+                schone_prijs = f"€ {meta_price.group(1).replace('.', ',')}"
         else: # Etos
-            cleaned_items.append([
-                "et-12046",
-                "Etos Paracetamol 500mg (50st)",
-                target_url,
-                "Live Prijs",
-                "",
-                schone_prijs,
-                winkel_naam
-            ])
-            
-        print(f"✅ Lokale extractie voltooid voor {winkel_naam} (Gevonden prijs: {schone_prijs})")
-        return cleaned_items
-            
-    except Exception as e:
-        print(f"❌ Fout tijdens het verwerken van {winkel_naam}: {e}")
-        return []
+            meta_price = re.search(r'data-price="([^"]+)"', html_content)
+            if meta_price:
+                schone_prijs = f"€ {meta_price.group(1).replace('.', ',')}"
+                
+        if schone_prijs == "Zie site":
+            alle_prijzen = re.findall(r'(\d+[\.,]\d{2})', html_content)
+            logische_prijzen = [p for p in alle_prijzen if not p.startswith("0") and float(p.replace(',', '.')) < 50.00]
+            if logische_prijzen:
+                schone_prijs = f"€ {logische_prijzen[0].replace('.', ',')}"
+                
+        return schone_prijs
+    except:
+        return "Fout"
 
 def update_google_sheet():
     print("🔑 Verbinding maken met Google Sheets...")
@@ -80,75 +57,71 @@ def update_google_sheet():
     proxy_key = os.environ.get("PROXY_API_KEY", "")
     
     if not creds_json or not proxy_key:
-        print("❌ CRITICAL: Geheimen ontbreken in GitHub Secrets!")
+        print("❌ Geheimen ontbreken!")
         return
         
-    # We slaan het bestand expliciet op als 'credentials.json'
     temp_creds_path = "credentials.json"
     try:
-        # Zorg dat de JSON strikt als geldig object wordt geïnterpreteerd
         json_data = json.loads(creds_json.strip())
-        
-        # Geforceerde fix: We dwingen het type naar service_account mocht er een key-mismatch zijn
-        if "type" in json_data and json_data["type"] != "service_account":
-            print("⚠️ WAARSCHUWING: Type in JSON was niet 'service_account'. We corrigeren dit live...")
-            json_data["type"] = "service_account"
-            
         with open(temp_creds_path, "w") as f:
             json.dump(json_data, f)
     except Exception as e:
-        print(f"❌ Fout bij het aanmaken van het certificaatbestand: {e}")
+        print(f"❌ Fout bij certificaat: {e}")
         return
 
     try:
-        # We gebruiken de gspread service_account snelkoppeling die OIDC-tokenfouten omzeilt
         client = gspread.service_account(filename=temp_creds_path)
-        print("🔓 Google API succesvol geauthenticeerd via Service Account!")
-    except Exception as e:
-        print(f"❌ Fout bij de initiële authenticatie: {e}")
-        print(f"🔍 AUTH DETAILS:\n{traceback.format_exc()}")
-        if os.path.exists(temp_creds_path):
-            os.remove(temp_creds_path)
-        return
-
-    kruidvat_url = "https://kruidvat.nl" 
-    etos_url = "https://etos.nl"
-    
-    kruidvat_data = haal_live_winkel_data(kruidvat_url, "Kruidvat", proxy_key)
-    etos_data = haal_live_winkel_data(etos_url, "Etos", proxy_key)
-    
-    alle_producten = kruidvat_data + etos_data
-    print(f"\n📊 --- EINDBALANS ---")
-    print(f"Gecombineerd totaal live opgehaald: {len(alle_producten)} rijen.")
-    
-    if len(alle_producten) == 0:
-        print("❌ Geen live data kunnen ophalen. Script afgebroken.")
-        if os.path.exists(temp_creds_path):
-            os.remove(temp_creds_path)
-        return
-        
-    try:
-        print("📁 Stap 1: Google Sheet openen...")
         sheet = client.open_by_key(SPREADSHEET_ID)
         
-        print("📄 Stap 2: Juiste tabblad selecteren...")
-        worksheet = sheet.worksheet(TABBLAD_DOEL)
-        
-        print("🧹 Stap 3: Oude data wissen...")
-        worksheet.clear()
-        
-        headers = ["id", "product-title", "product-link", "actie", "actie-deal", "prijs", "winkel"]
-        print("📝 Stap 4: Nieuwe headers en data wegschrijven...")
-        worksheet.append_row(headers)
-        worksheet.append_rows(alle_producten)
-        
-        print("🎉 GOUD! De live prijzen staan nu écht in je Sheet!")
+        # 1. LEES DE AUTOMATISCHE DATABASE UIT HET BRONTABBLAD
+        try:
+            bron_worksheet = sheet.worksheet(TABBLAD_BRON)
+            bron_data = bron_worksheet.get_all_records() # Haalt alle rijen netjes als objecten op
+            print(f"📂 Succesvol {len(bron_data)} producten ingeladen uit tabblad '{TABBLAD_BRON}'!")
+        except Exception:
+            print(f"⚠️ Tabblad '{TABBLAD_BRON}' niet gevonden. We maken een test-tabblad aan...")
+            # Fallback als het tabblad nog niet bestaat, zodat het script niet crasht
+            bron_worksheet = sheet.add_worksheet(title=TABBLAD_BRON, rows="100", cols="10")
+            bron_worksheet.append_row(["Product ID", "Product Naam", "Link Kruidvat", "Link Etos"])
+            bron_worksheet.append_row(["paracetamol-50st", "Paracetamol 500mg (50st)", "https://kruidvat.nl", "https://etos.nl"])
+            bron_data = bron_worksheet.get_all_records()
+
+        doel_worksheet = sheet.worksheet(TABBLAD_DOEL)
     except Exception as e:
-        print(f"❌ Fout tijdens het schrijven naar de sheet!")
-        print(f"🔍 EXACTE FOUTDETAILS:\n{traceback.format_exc()}")
+        print(f"❌ Google Sheets verbindingsfout: {e}")
+        if os.path.exists(temp_creds_path): os.remove(temp_creds_path)
+        return
+
+    alle_rijen = []
+    nu = datetime.datetime.now().strftime("%d-%m %H:%M")
+
+    # Loop door de dynamische spreadsheet-rijen heen (maximaal 30 per nacht om credits te sparen!)
+    limiet = 30
+    for i, p in enumerate(bron_data[:limiet]):
+        # Flexibele kolomnamen afvangen
+        naam = p.get("Product Naam") or p.get("product-title") or "Onbekend"
+        id_prod = p.get("Product ID") or p.get("id") or f"prod-{i}"
+        url_kv = p.get("Link Kruidvat") or p.get("link-kruidvat") or ""
+        url_et = p.get("Link Etos") or p.get("link-etos") or ""
+        
+        print(f"\n📦 [{i+1}/{min(len(bron_data), limiet)}] Live prijs checken voor: {naam}")
+        
+        prijs_kv = haal_live_price(url_kv, "Kruidvat", proxy_key)
+        prijs_et = haal_live_price(url_et, "Etos", proxy_key)
+        
+        alle_rijen.append([id_prod, naam, url_kv, prijs_kv, url_et, prijs_et, nu])
+
+    try:
+        print("\n🧹 Live tabblad updaten...")
+        doel_worksheet.clear()
+        headers = ["Product ID", "Product Naam", "Link Kruidvat", "Prijs Kruidvat", "Link Etos", "Prijs Etos", "Laatste Update"]
+        doel_worksheet.append_row(headers)
+        doel_worksheet.append_rows(alle_rijen)
+        print("🎉 GOUD! De live prijzen zijn succesvol bijgewerkt vanuit de Sheet database!")
+    except Exception as e:
+        print(f"❌ Fout bij schrijven: {e}")
     finally:
-        if os.path.exists(temp_creds_path):
-            os.remove(temp_creds_path)
+        if os.path.exists(temp_creds_path): os.remove(temp_creds_path)
 
 if __name__ == "__main__":
     update_google_sheet()
