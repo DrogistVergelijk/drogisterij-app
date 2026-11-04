@@ -31,14 +31,14 @@ function toonProducten(productenLijst) {
     const container = document.getElementById('products-container');
     container.innerHTML = "";
 
-    if (productenLijst.length === 0) {
+    if (!productenLijst || productenLijst.length === 0) {
         container.innerHTML = "<p style='text-align:center; color:#888;'>Geen producten gevonden...</p>";
         return;
     }
 
     productenLijst.forEach(prod => {
         let actieBadge = "";
-        if (prod.actieAantal && prod.actiePrijs && prod.actieAantal.trim() !== "" && prod.actiePrijs.trim() !== "") {
+        if (prod.actieAantal && prod.actiePrijs && prod.actieAantal.toString().trim() !== "" && prod.actiePrijs.toString().trim() !== "") {
             actieBadge = `<div class="badge">🔥 ACTIE: ${prod.actieAantal} voor €${prod.actiePrijs}</div>`;
         }
 
@@ -65,15 +65,16 @@ async function startApp() {
         const rijen = data.slice(1);
 
         alleProducten = rijen.map(kolommen => {
+            if (!kolommen || kolommen.length < 2) return null;
             return {
-                id: kolommen[0] || "",
-                naam: kolommen[1] || "",
-                link: kolommen[2] || "#",
-                actieAantal: kolommen[3] || "",
-                actiePrijs: kolommen[4] || "",
-                prijs: kolommen[5] || ""
+                id: kolommen[0] ? kolommen[0].toString() : "",
+                naam: kolommen[1] ? kolommen[1].toString() : "",
+                link: kolommen[2] ? kolommen[2].toString() : "#",
+                actieAantal: kolommen[3] ? kolommen[3].toString() : "",
+                actiePrijs: kolommen[4] ? kolommen[4].toString() : "",
+                prijs: kolommen[5] ? kolommen[5].toString() : ""
             };
-        }).filter(p => p.naam && p.naam.trim() !== "");
+        }).filter(p => p && p.naam && p.naam.trim() !== "");
 
         toonProducten(alleProducten);
 
