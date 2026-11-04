@@ -3,10 +3,10 @@ import json
 import requests
 import gspread
 import re
+import traceback
 from google.oauth2.service_account import Credentials
 
 # --- CONFIGURATIE ---
-# Plak hier de ID van jouw Google Sheet (te vinden in de URL van je spreadsheet)
 SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_DOEL = "Live Prijzen"
 
@@ -32,10 +32,9 @@ def haal_live_winkel_data(target_url, winkel_naam, proxy_key):
         html_content = response.text
         print("🔍 HTML succesvol ontvangen! We starten de lokale data-extractie...")
         
-        # We zoeken naar geldige Nederlandse prijsformaten (bijv. 1,49 of 2.25)
         prijzen = re.findall(r'(\d+[\.,]\d{2})', html_content)
         
-        # Fallback filter om extreme uitschieters of dummy-data te voorkomen
+        # Filter om uitschieters te voorkomen
         geldige_prijzen = [p for p in prijzen if not p.startswith("00") and not p.startswith("100")]
         
         if geldige_prijzen:
@@ -81,17 +80,30 @@ def update_google_sheet():
         print("❌ CRITICAL: Geheimen ontbreken in GitHub Secrets!")
         return
         
-    # Teruggebracht naar de enige échte scope die gspread vereist om authenticatiefouten te voorkomen
-    scopes = ["https://googleapis.com"]
+    # We schrijven de JSON-data tijdelijk naar een fysiek bestand om OIDC-tokenfouten te omzeilen
+    temp_creds_path = "creds_temp.json"
+    try:
+        with open(temp_creds_path, "w") as f:
+            f.write(creds_json.strip())
+    except Exception as e:
+        print(f"❌ Fout bij het aanmaken van het tijdelijke certificaatbestand: {e}")
+        return
+
+    # De officiële Google Drive & Sheets scopes die gspread vereist
+    scopes = [
+        "https://googleapis.com",
+        "https://googleapis.com"
+    ]
     
     try:
-        # Zorg dat eventuele vreemde regeleinden uit de GitHub Actions string worden gladgestreken
-        info = json.loads(creds_json, strict=False)
-        creds = Credentials.from_service_account_info(info, scopes=scopes)
+        # Inloggen via het fysieke bestand (dit is de meest robuuste methode)
+        creds = Credentials.from_service_account_file(temp_creds_path, scopes=scopes)
         client = gspread.authorize(creds)
-        print("🔓 Google API succesvol geauthenticeerd!")
+        print("🔓 Google API succesvol geauthenticeerd via bestand!")
     except Exception as e:
-        print(f"❌ Fout bij het laden van Google Credentials: {e}")
+        print(f"❌ Fout bij de initiële authenticatie: {e}")
+        if os.path.exists(temp_creds_path):
+            os.remove(temp_creds_path)
         return
 
     kruidvat_url = "https://kruidvat.nl" 
@@ -106,23 +118,33 @@ def update_google_sheet():
     
     if len(alle_producten) == 0:
         print("❌ Geen live data kunnen ophalen. Script afgebroken.")
+        if os.path.exists(temp_creds_path):
+            os.remove(temp_creds_path)
         return
         
     try:
+        print("📁 Stap 1: Google Sheet openen...")
         sheet = client.open_by_key(SPREADSHEET_ID)
+        
+        print("📄 Stap 2: Juiste tabblad selecteren...")
         worksheet = sheet.worksheet(TABBLAD_DOEL)
         
-        print("🧹 Oude data wissen...")
+        print("🧹 Stap 3: Oude data wissen...")
         worksheet.clear()
         
         headers = ["id", "product-title", "product-link", "actie", "actie-deal", "prijs", "winkel"]
-        print("📝 Nieuwe data wegschrijven...")
+        print("📝 Stap 4: Nieuwe headers en data wegschrijven...")
         worksheet.append_row(headers)
         worksheet.append_rows(alle_producten)
         
         print("🎉 GOUD! De live prijzen staan nu écht in je Sheet!")
     except Exception as e:
-        print(f"❌ Fout tijdens het schrijven naar de sheet: {e}")
+        print(f"❌ Fout tijdens het schrijven naar de sheet!")
+        print(f"🔍 EXACTE FOUTDETAILS:\n{traceback.format_exc()}")
+    finally:
+        # Altijd het tijdelijke bestand netjes opruimen aan het einde
+        if os.path.exists(temp_creds_path):
+            os.remove(temp_creds_path)
 
 if __name__ == "__main__":
     update_google_sheet()
