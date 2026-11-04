@@ -4,7 +4,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- CONFIGURATIE ---
-GOOGLE_SHEET_NAME = "https://docs.google.com/spreadsheets/d/1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA/edit?gid=1845185139#gid=1845185139"
+GOOGLE_SHEET_NAME = "Drogisterij database"
 TABBLAD_NAAM = "Live Prijzen"
 
 def update_google_sheet():
