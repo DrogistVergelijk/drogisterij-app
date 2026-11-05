@@ -1,0 +1,23 @@
+on:
+  workflow_dispatch: # Dit zorgt voor de handmatige startknop op GitHub!
+
+jobs:
+  test_run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code ophalen
+        uses: actions/checkout@v4
+
+      - name: Python klaarzetten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Hulpmiddelen installeren
+        run: pip install gspread google-auth requests beautifulsoup4
+
+      - name: Robot starten
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          PROXY_API_KEY: ${{ secrets.PROXY_API_KEY }}
+        run: python discover_and_match.py
