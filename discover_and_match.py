@@ -13,18 +13,21 @@ TABBLAD_BRON = "Producten Database"
 PROXY_API_KEY = os.environ.get("PROXY_API_KEY", "")
 GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS", "")
 
-# 10 Echte, handmatig gecontroleerde, volledige productlinks (Geen XML, geen afkortingen)
+# De links zijn hier opgeknipt zodat het chatplatform ze NIET kan inkorten.
+# Python plakt ze automatisch weer perfect aan elkaar via het plus-teken (+).
+BASIS = "https://www.etos.nl" + "/producten/"
+
 TEST_URLS = [
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl"
+    BASIS + "clearblue-snelle-detectie-zwangerschapstest-2-stuks-110001864.html",
+    BASIS + "etos-baby-neusspray-15-ml-110008599.html",
+    BASIS + "hansaplast-elastic-pleister-1-m-x-6-cm-110013013.html",
+    BASIS + "sudocrem-multi-expert-125-gram-110202113.html",
+    BASIS + "davitamon-multi-vrouw-tabletten-60-stuks-110315556.html",
+    BASIS + "strepsils-citroen-honing-zuigtabletten-24-stuks-110316305.html",
+    BASIS + "zendium-junior-5-12-jaar-tandpasta-75-ml-120474753.html",
+    BASIS + "nivea-creme-tube-100-ml-110247397.html",
+    BASIS + "purol-zalf-50-ml-110247653.html",
+    BASIS + "oral-b-essential-munt-flosdraad-110267427.html"
 ]
 
 def haal_ean_en_naam(url, proxy_key):
@@ -32,7 +35,6 @@ def haal_ean_en_naam(url, proxy_key):
     if not url or not proxy_key:
         return None, None
         
-    # We gebruiken de officiële gateway en dwingen premium proxies af om Cloudflare te slopen
     api_url = "https://zenrows.com"
     payload = {
         "apikey": proxy_key.strip(),
@@ -50,7 +52,6 @@ def haal_ean_en_naam(url, proxy_key):
             
         html = response.text
         
-        # Controleer of we per ongeluk op een ZenRows foutpagina zijn geland
         if "Reliable web data" in html or "ZenRows" in html and len(html) < 2000:
             print(" ⚠️ ZenRows gateway weigerde de toegang tot de webpagina.")
             return None, None
@@ -93,7 +94,7 @@ def main():
 
     gematchte_database = {}
     
-    # We testen er eerst 3 om je credits te sparen en te kijken of je sheet vult
+    # We testen er eerst 3 om te kijken of de verbinding met je sheet slaagt
     scan_limiet = 3 
     print(f"🔄 De robot gaat nu de eerste {scan_limiet} pagina's controleren op barcodes...")
 
@@ -131,8 +132,7 @@ def main():
     # Maak rijen voor de Sheet
     nieuwe_rijen = []
     for ean, data in gematchte_database.items():
-        # Kolommen: Product ID (Barcode), Product Naam, Link Kruidvat (leeg), Link Etos
-        nieuwe_rijen.append([ean, data, data, data])
+        nieuwe_rijen.append([ean, data[0], data[1], data[2]])
 
     try:
         if nieuwe_rijen:
