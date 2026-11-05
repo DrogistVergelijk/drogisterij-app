@@ -13,40 +13,10 @@ TABBLAD_BRON = "Producten Database"
 PROXY_API_KEY = os.environ.get("PROXY_API_KEY", "")
 GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS", "")
 
-# De lijst met Etos product-links staat nu direct en veilig in het geheugen van de robot
-ETOS_URLS = [
+# 10 Echte, handmatig gecontroleerde, volledige productlinks (Geen XML, geen afkortingen)
+TEST_URLS = [
     "https://etos.nl",
     "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl",
-    "https://etos.nl</loc>",
     "https://etos.nl",
     "https://etos.nl",
     "https://etos.nl",
@@ -58,25 +28,33 @@ ETOS_URLS = [
 ]
 
 def haal_ean_en_naam(url, proxy_key):
-    """Bezoekt de Etos productpagina via ZenRows om de EAN-barcode en naam te oogsten."""
+    """Bezoekt een productpagina via ZenRows v1 gateway en zoekt naar de barcode."""
     if not url or not proxy_key:
         return None, None
         
+    # We gebruiken de officiële gateway en dwingen premium proxies af om Cloudflare te slopen
+    api_url = "https://zenrows.com"
     payload = {
         "apikey": proxy_key.strip(),
-        "url": url,
+        "url": url.strip(),
         "js_render": "true",
         "antibot": "true",
         "premium_proxy": "true"
     }
     
     try:
-        response = requests.get("https://zenrows.com", params=payload, timeout=45)
+        response = requests.get(api_url, params=payload, timeout=45)
         if response.status_code != 200:
-            print(f" ⚠️ Pagina gaf foutcode {response.status_code}")
+            print(f" ⚠️ Proxy gaf foutcode {response.status_code}")
             return None, None
             
         html = response.text
+        
+        # Controleer of we per ongeluk op een ZenRows foutpagina zijn geland
+        if "Reliable web data" in html or "ZenRows" in html and len(html) < 2000:
+            print(" ⚠️ ZenRows gateway weigerde de toegang tot de webpagina.")
+            return None, None
+            
         soup = BeautifulSoup(html, 'html.parser')
         
         # Productnaam zoeken
@@ -99,27 +77,27 @@ def haal_ean_en_naam(url, proxy_key):
             except:
                 continue
                 
-        # RegEx Fallback
+        # RegEx Fallback op de complete broncode
         ean_match = re.search(r'"ean"\s*:\s*"(\d{13})"', html) or re.search(r'"gtin"\s*:\s*"(\d{13})"', html)
         if ean_match:
             return ean_match.group(1), title
             
         return None, title
     except Exception as e:
-        print(f" ⚠️ Fout tijdens verwerken pagina: {e}")
+        print(f" ⚠️ Fout bij verbinding: {e}")
         return None, None
 
 def main():
-    print("🤖 Robot gestart: Automatische databasevuller...")
-    print(f"📊 Succes! Er zijn {len(ETOS_URLS)} productlinks klaargezet in het geheugen.")
+    print("🤖 Robot gestart: Handmatige testlijst databasevuller...")
+    print(f"📊 {len(TEST_URLS)} Echte productlinks ingeladen in het script.")
 
     gematchte_database = {}
     
-    # VEILIGHEIDSLIMIET: We scannen er nu eerst 5 om de sheet live te testen en je credits te besparen!
-    scan_limiet = 5 
+    # We testen er eerst 3 om je credits te sparen en te kijken of je sheet vult
+    scan_limiet = 3 
     print(f"🔄 De robot gaat nu de eerste {scan_limiet} pagina's controleren op barcodes...")
 
-    for i, url in enumerate(ETOS_URLS[:scan_limiet]):
+    for i, url in enumerate(TEST_URLS[:scan_limiet]):
         product_slug = url.split('/')[-1]
         print(f"📦 [{i+1}/{scan_limiet}] Pagina openen: {product_slug}")
         
@@ -128,7 +106,7 @@ def main():
             print(f" ✅ Barcode gevonden! EAN: {ean} -> Product: {naam}")
             gematchte_database[ean] = [naam, "", url]
         else:
-            print(f" ⚠️ Geen barcode (EAN) kunnen extraheren voor: {naam}")
+            print(f" ⚠️ Geen barcode (EAN) kunnen vinden op deze pagina.")
 
     # Google Sheets Verbinding maken
     if not GOOGLE_CREDENTIALS_JSON:
@@ -150,21 +128,20 @@ def main():
         if os.path.exists(temp_creds_path): os.remove(temp_creds_path)
         return
 
-    # Pak de verzamelde data uit de database-dictionary en maak er rijen van
+    # Maak rijen voor de Sheet
     nieuwe_rijen = []
     for ean, data in gematchte_database.items():
-        nieuwe_rijen.append([ean, data[0], data[1], data[2]])
+        # Kolommen: Product ID (Barcode), Product Naam, Link Kruidvat (leeg), Link Etos
+        nieuwe_rijen.append([ean, data, data, data])
 
     try:
         if nieuwe_rijen:
             worksheet.append_rows(nieuwe_rijen)
-            print(f"🎉 GOUD! Er zijn {len(nieuwe_rijen)} Etos-producten succesvol in je spreadsheet gezet!")
+            print(f"🎉 GOUD! Er zijn {len(nieuwe_rijen)} producten succesvol in je spreadsheet gezet!")
         else:
             print("⚠️ Run voltooid, maar er zijn deze keer geen barcodes geoogst.")
     except Exception as e:
-        print(f"❌ Fout tijdens het schrijven van de regels naar Google Sheets: {e}")
-    except:
-        print("❌ Onbekende fout bij wegschrijven.")
+        print(f"❌ Fout tijdens het schrijven naar Google Sheets: {e}")
     finally:
         if os.path.exists(temp_creds_path):
             os.remove(temp_creds_path)
