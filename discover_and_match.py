@@ -7,65 +7,41 @@ from bs4 import BeautifulSoup
 import gspread
 
 # --- CONFIGURATIE ---
-# Vul hier je eigen spreadsheet ID in
+# ID van je Google Sheet (haal deze uit de URL van je spreadsheet)
 SPREADSHEET_ID = "1xbvHQKn_UUwr4mQHixOG0ABD-JMmZi7v7oOrs-C3LbA"
 TABBLAD_BRON = "Producten Database"
 
-# Gecorrigeerde sitemap URL's die we direct via ZenRows gaan opvragen
-KRUIDVAT_SITEMAP = "https://www.kruidvat.nl/sitemap.xml"
-# We gebruiken de product sitemap van Etos die je in de bestanden hebt meegeleverd
-ETOS_SITEMAP = "https://www.etos.nl/sitemap_0-product.xml"
+# Lokale sitemap die we gratis uit jouw repository inlezen
+ETOS_SITEMAP_LOKAAL = "etos_sitemap.xml"
 
 PROXY_API_KEY = os.environ.get("PROXY_API_KEY", "")
 GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS", "")
 
-def haal_urls_uit_sitemap(sitemap_url, proxy_key):
-    """Haalt de sitemap op via de ZenRows API en vist alle product-links eruit."""
-    print(f"🌐 Sitemap scannen via ZenRows: {sitemap_url}")
+def haal_urls_etos_lokaal(bestandsnaam):
+    """Leest de Etos links volledig gratis en zonder netwerkkosten uit het XML-bestand."""
+    print(f"📂 Etos sitemap inladen uit repository: {bestandsnaam}...")
     urls = []
-    
-    if not proxy_key:
-        print("❌ Fout: PROXY_API_KEY is leeg. Kan sitemap niet veilig ophalen.")
-        return urls
-
-    # Voor sitemaps hebben we GEEN js_render nodig, dat scheelt je enorm veel gratis credits!
-    payload = {
-        "apikey": proxy_key.strip(),
-        "url": sitemap_url,
-        "antibot": "true",
-        "premium_proxy": "true"
-    }
-    
     try:
-        response = requests.get("https://zenrows.com", params=payload, timeout=60)
-        if response.status_code != 200:
-            print(f"⚠️ ZenRows sitemap fout: Statuscode {response.status_code}")
+        if not os.path.exists(bestandsnaam):
+            print(f"❌ Fout: {bestandsnaam} is niet gevonden in je repository! Upload eerst het XML-bestand.")
             return urls
             
-        # Parse de XML inhoud
-        xml_content = response.content
-        root = ET.fromstring(xml_content)
-        
-        # Sitemaps gebruiken bijna altijd deze standaard XML namespace
+        tree = ET.parse(bestandsnaam)
+        root = tree.getroot()
         namespaces = {'ns': 'http://sitemaps.org'}
         for url_tag in root.findall('ns:url', namespaces):
             loc = url_tag.find('ns:loc', namespaces)
             if loc is not None:
-                urls.append(loc.text)
-                
-    except ET.ParseError as xml_error:
-        print(f"❌ XML Verwerkingsfout (Waarschijnlijk gaf de site HTML-blokkade terug): {xml_error}")
+                urls.append(loc.text.strip())
     except Exception as e:
-        print(f"⚠️ Algemene fout bij uitlezen sitemap: {e}")
-        
+        print(f"❌ Fout bij lokaal verwerken van Etos XML: {e}")
     return urls
 
-def haal_ean_en_naam(url, winkel_naam, proxy_key):
-    """Bezoekt een productpagina en zoekt naar de 13-cijferige barcode (EAN)."""
+def haal_ean_en_naam(url, proxy_key):
+    """Bezoekt de Etos productpagina via ZenRows om de EAN-barcode en naam te oogsten."""
     if not url or not proxy_key:
         return None, None
         
-    # Voor productpagina's hebben we WEL JavaScript rendering nodig om de Cloudflare-beveiliging te kraken
     payload = {
         "apikey": proxy_key.strip(),
         "url": url,
@@ -77,18 +53,19 @@ def haal_ean_en_naam(url, winkel_naam, proxy_key):
     try:
         response = requests.get("https://zenrows.com", params=payload, timeout=45)
         if response.status_code != 200:
+            print(f" ⚠️ Pagina gaf foutcode {response.status_code}")
             return None, None
             
         html = response.text
         soup = BeautifulSoup(html, 'html.parser')
         
-        # Productnaam zoeken
+        # Productnaam zoeken (h1 of open graph title)
         title_tag = soup.find('h1') or soup.find('meta', property='og:title')
         title = "Onbekend Product"
         if title_tag:
             title = title_tag.get('content', title_tag.get_text()).strip()
 
-        # EAN zoeken in JSON-LD scripts
+        # EAN zoeken in JSON-LD structuur data van de drogist
         scripts = soup.find_all('script', type='application/ld+json')
         for script in scripts:
             try:
@@ -102,91 +79,82 @@ def haal_ean_en_naam(url, winkel_naam, proxy_key):
             except:
                 continue
                 
-        # Regex Fallback op complete broncode
+        # RegEx Fallback op de complete broncode als de schema-structuur afwijkt
         ean_match = re.search(r'"ean"\s*:\s*"(\d{13})"', html) or re.search(r'"gtin"\s*:\s*"(\d{13})"', html)
         if ean_match:
             return ean_match.group(1), title
             
         return None, title
-    except:
+    except Exception as e:
+        print(f" ⚠️ Fout tijdens verwerken pagina: {e}")
         return None, None
 
 def main():
-    print("🚀 Gecorrigeerde Automatische Matchmaker gestart...")
+    print("🤖 Robot gestart: Automatische databasevuller...")
     
-    # 1. Sitemap checken
-    kv_urls = haal_urls_uit_sitemap(KRUIDVAT_SITEMAP, PROXY_API_KEY)
-    et_urls = haal_urls_uit_sitemap(ETOS_SITEMAP, PROXY_API_KEY)
-    
-    print(f"📊 Resultaat: {len(kv_urls)} Kruidvat links en {len(et_urls)} Etos links gevonden.")
+    # Inlezen van de sitemap-bestanden
+    et_urls = haal_urls_etos_lokaal(ETOS_SITEMAP_LOKAAL)
+    print(f"📊 Succes! Er zijn {len(et_urls)} productlinks klaargezet in het tijdelijke geheugen.")
 
-    if not kv_urls and not et_urls:
-        print("❌ Stopzetting: Er konden geen sitemaps worden uitgelezen. Controleer je PROXY_API_KEY.")
+    if not et_urls:
+        print("❌ Stopzetting: Er konden geen links worden ingeladen. Controleer etos_sitemap.xml.")
         return
 
     gematchte_database = {}
-    test_limiet = 5 # Heel laag houden om eerst je verbinding en sheet te testen!
+    
+    # VEILIGHEIDSLIMIET: We scannen er nu 25 om de sheet live te testen en je credits te besparen!
+    scan_limiet = 25 
+    print(f"🔄 De robot gaat nu de eerste {scan_limiet} pagina's controleren op barcodes...")
 
-    # Kruidvat links testen
-    for url in kv_urls[:test_limiet]:
-        print(f"🔍 Scannen Kruidvat product...")
-        ean, naam = haal_ean_en_naam(url, "Kruidvat", PROXY_API_KEY)
+    for i, url in enumerate(et_urls[:scan_limiet]):
+        product_slug = url.split('/')[-1]
+        print(f"📦 [{i+1}/{scan_limiet}] Pagina openen: {product_slug}")
+        
+        ean, naam = haal_ean_en_naam(url, PROXY_API_KEY)
         if ean:
-            gematchte_database[ean] = [naam, url, ""]
+            print(f" ✅ Barcode gevonden! EAN: {ean} -> Product: {naam}")
+            # Opslagstructuur: Barcode als ID, Naam, Kruidvat (leeg), Etos link
+            gematchte_database[ean] = [naam, "", url]
+        else:
+            print(f" ⚠️ Geen barcode (EAN) kunnen extraheren voor: {naam}")
 
-    # Etos links testen en matchen
-    for url in et_urls[:test_limiet]:
-        print(f"🔍 Scannen Etos product...")
-        ean, naam = haal_ean_en_naam(url, "Etos", PROXY_API_KEY)
-        if ean:
-            if ean in gematchte_database:
-                print(f"🔗 MATCH GEPAST! '{naam}' hoort bij elkaar via EAN barcode: {ean}")
-                gematchte_database[ean][2] = url
-            else:
-                gematchte_database[ean] = [naam, "", url]
-
-    # 2. Google Sheets Verbinding (Met Beveiligings-Fix)
+    # Google Sheets Verbinding maken
     if not GOOGLE_CREDENTIALS_JSON:
-        print("❌ Fout: GOOGLE_CREDENTIALS secret ontbreekt op GitHub!")
+        print("❌ Fatale fout: GOOGLE_CREDENTIALS ontbreekt in GitHub Secrets!")
         return
 
     temp_creds_path = "temp_credentials.json"
     try:
-        # Schrijf de JSON-string naar een echt, tijdelijk bestand (dit lost de RefreshError op)
         creds_clean = json.loads(GOOGLE_CREDENTIALS_JSON.strip())
-        if creds_clean.get("type") != "service_account":
-            creds_clean["type"] = "service_account"
-            
         with open(temp_creds_path, "w") as f:
             json.dump(creds_clean, f)
             
-        # Inloggen via het bestand
         gc = gspread.service_account(filename=temp_creds_path)
         sheet = gc.open_by_key(SPREADSHEET_ID)
         worksheet = sheet.worksheet(TABBLAD_BRON)
-        print("🔑 Google Sheets succesvol gekoppeld!")
-        
+        print("🔑 Google Sheets kluis succesvol geopend!")
     except Exception as google_error:
-        print(f"❌ Fatale Google Sheets inlogfout: {google_error}")
-        if os.path.exists(temp_creds_path):
-            os.remove(temp_creds_path)
+        print(f"❌ Google Sheets verbindingsfout: {google_error}")
+        if os.path.exists(temp_creds_path): os.remove(temp_creds_path)
         return
 
-    # Omzetten naar rijen voor je Sheet
+    # Pak de verzamelde data uit de database-dictionary en maak er rijen van
     nieuwe_rijen = []
     for ean, data in gematchte_database.items():
+        # Volgorde kolommen: Product ID, Product Naam, Link Kruidvat, Link Etos
         nieuwe_rijen.append([ean, data[0], data[1], data[2]])
 
     try:
         if nieuwe_rijen:
+            # Voeg de nieuwe rijen toe onder de bestaande rijen in de database
             worksheet.append_rows(nieuwe_rijen)
-            print(f"🎉 GOUD! Er zijn {len(nieuwe_rijen)} producten toegevoegd aan je database!")
+            print(f"🎉 GOUD! Er zijn {len(nieuwe_rijen)} Etos-producten succesvol in je spreadsheet gezet!")
         else:
-            print("⚠️ Geen nieuwe barcodes kunnen ontdekken tijdens deze testrun.")
+            print("⚠️ Run voltooid, maar er zijn deze keer geen barcodes geoogst.")
     except Exception as e:
-        print(f"❌ Fout bij schrijven naar Google Sheets: {e}")
+        print(f"❌ Fout tijdens het schrijven van de regels naar Google Sheets: {e}")
     finally:
-        # Altijd het tijdelijke bestand netjes opruimen voor de veiligheid
+        # Altijd het inlogbestand wissen van de GitHub-server voor de veiligheid
         if os.path.exists(temp_creds_path):
             os.remove(temp_creds_path)
 
